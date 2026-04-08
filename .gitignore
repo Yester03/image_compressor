@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+.venv-min/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.zip
+*.pkg
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local temp
+tmp_test.txt
