@@ -24,3 +24,10 @@ Thumbs.db
 
 # Local temp
 tmp_test.txt
+
+# Local images: ignore all, keep one test file
+img/**
+!img/
+!img/input/
+img/input/**
+!img/input/v2-7bd140f79786114b313f43c42ba1a0c7_1440w.jpg
