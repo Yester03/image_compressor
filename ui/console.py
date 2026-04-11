@@ -7,6 +7,7 @@ from typing import Sequence, Tuple
 
 from core.compress import CompressionResult
 from core.constants import APP_NAME, APP_VERSION, APP_VERSION_LABEL
+from core.icon import IconResult
 from core.perler import PerlerResult
 from utils.paths import is_compressed_named
 
@@ -123,6 +124,18 @@ def _print_perler_result_line(result: PerlerResult) -> None:
         print(f"提示: {result.reason}")
 
 
+def _print_icon_result_line(result: IconResult) -> None:
+    status = "OK" if result.success else "FAIL"
+    width, height = result.dimensions
+    sizes_text = ",".join(str(size) for size in result.icon_sizes)
+    print(
+        f"{status} size={_format_size_bytes(result.final_bytes)} icon-sizes={sizes_text} "
+        f"dims={width}x{height} output={result.output_path}"
+    )
+    if not result.success:
+        print(f"提示: {result.reason}")
+
+
 def _print_menu_help(show_examples: bool = False) -> None:
     print("\n主菜单:")
     print("  0. exit    退出程序")
@@ -130,6 +143,7 @@ def _print_menu_help(show_examples: bool = False) -> None:
     print("  2. scan    切换扫描模式（当前目录 / 递归子目录）")
     print("  3. help    显示帮助")
     print("  4. target  修改当前压缩大小")
+    print("  5. icon    开始选择并转换为 ICO 图标")
     print("  6. style   开始选择并转换为拼豆风格")
     print("  7. dir     切换工作目录")
 
@@ -138,12 +152,14 @@ def _print_menu_help(show_examples: bool = False) -> None:
         print("  交互模式: 直接运行 python main.py")
         print("    - 菜单输入 1 开始压缩，回车默认当前目标")
         print("    - 菜单输入 4 修改当前目标大小")
+        print("    - 菜单输入 5 转换 ICO 图标")
         print("    - 选图支持输入序号/文件名，多选可用 1,2,3")
         print("  命令行模式: python main.py img/input -k 200")
         print("    - 指定输出: python main.py img/input/in.png -k 200 -o out.jpg")
         print("    - 覆盖输出: python main.py img/input/in.png -k 200 --overwrite")
         print("    - 目录批量: python main.py img/input -k 200 --recursive")
         print("  拼豆风格: python main.py img/input/in.png --mode perler")
+        print("  图标转换: python main.py img/input/in.png --mode icon --icon-sizes 16,32,48,64,128,256")
 
 
 def _clear_console() -> None:

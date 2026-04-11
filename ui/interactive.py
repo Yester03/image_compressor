@@ -6,6 +6,7 @@ from typing import Optional, Sequence, Tuple
 
 from core.compress import compress_image_to_target_kb
 from core.constants import (
+    DEFAULT_ICON_SIZES,
     DEFAULT_PERLER_BEAD_SIZE,
     DEFAULT_PERLER_BLUEPRINT,
     DEFAULT_PERLER_COLORS,
@@ -17,6 +18,7 @@ from core.constants import (
     EXIT_COMMANDS,
     IMAGE_SUFFIXES,
 )
+from core.icon import convert_image_to_icon, normalize_icon_sizes
 from core.perler import style_image_to_perler, _validate_perler_params
 from ui.console import (
     _clear_console,
@@ -24,6 +26,7 @@ from ui.console import (
     _display_images,
     _display_images_basic,
     _format_size_bytes,
+    _print_icon_result_line,
     _print_logo,
     _print_menu_help,
     _print_perler_result_line,
@@ -36,6 +39,7 @@ from utils.paths import (
     _next_available_path,
     ensure_image_dirs,
     list_images,
+    next_icon_output_path,
     next_output_path,
     next_perler_output_path,
 )
@@ -50,6 +54,7 @@ def parse_menu_command(text: str) -> str:
         "2": "scan",
         "3": "help",
         "4": "target",
+        "5": "icon",
         "6": "style",
         "7": "dir",
         "h": "help",
@@ -57,6 +62,7 @@ def parse_menu_command(text: str) -> str:
         "s": "scan",
         "r": "run",
         "t": "target",
+        "i": "icon",
         "d": "dir",
         "p": "style",
         "e": "exit",
@@ -95,6 +101,25 @@ def parse_target_kb(text: str, default_kb: int = DEFAULT_TARGET_KB) -> int:
     if kb <= 0:
         raise ValueError("目标大小必须大于 0")
     return kb
+
+
+def parse_icon_sizes(text: str, default_sizes: Tuple[int, ...] = DEFAULT_ICON_SIZES) -> Tuple[int, ...]:
+    raw = text.strip().replace(" ", "")
+    if not raw:
+        return default_sizes
+
+    parts = [part for part in raw.split(",") if part]
+    if not parts:
+        raise ValueError("icon 尺寸不能为空，请输入逗号分隔整数，例如 16,32,48,64,128,256")
+
+    values: list[int] = []
+    for part in parts:
+        try:
+            values.append(int(part))
+        except ValueError as exc:
+            raise ValueError(f"icon 尺寸包含非整数值: {part}") from exc
+
+    return normalize_icon_sizes(values)
 
 
 def _prompt_yes_no(prompt: str, default: bool) -> Optional[bool]:
@@ -296,6 +321,85 @@ def _interactive_style(
 
             print(f"[{idx}/{len(selected_images)}] {image.name}")
             _print_perler_result_line(result)
+        return False
+
+
+def _prompt_icon_sizes(
+    default_sizes: Tuple[int, ...] = DEFAULT_ICON_SIZES,
+    allow_back: bool = True,
+) -> Tuple[bool, Optional[Tuple[int, ...]]]:
+    default_text = ",".join(str(size) for size in default_sizes)
+    while True:
+        raw = input(
+            f"icon-sizes（默认 {default_text}，范围 16~256，逗号分隔，back返回，exit退出）: "
+        ).strip()
+        cmd = raw.lower()
+        if cmd in EXIT_COMMANDS:
+            return True, None
+        if allow_back and cmd == "back":
+            return False, None
+
+        try:
+            sizes = parse_icon_sizes(raw, default_sizes=default_sizes)
+        except ValueError as exc:
+            print(f"输入无效: {exc}")
+            continue
+
+        return False, sizes
+
+
+def _interactive_icon(
+    base_dir: Path,
+    recursive: bool,
+    default_icon_sizes: Tuple[int, ...] = DEFAULT_ICON_SIZES,
+) -> bool:
+    images = list_images(recursive=recursive, base_dir=base_dir)
+    if not images:
+        mode = "递归子目录" if recursive else "当前目录"
+        print(f"\n未找到可转换图片（模式: {mode}）。")
+        return False
+
+    _display_images_basic(images, base_dir)
+
+    while True:
+        raw = input(
+            "\n选择图片（序号/文件名，可多选如 1,2,3，back返回，exit退出）: "
+        ).strip()
+        cmd = raw.lower()
+        if cmd in EXIT_COMMANDS:
+            return True
+        if cmd == "back":
+            return False
+
+        selected_images = select_images(images, raw, base_dir=base_dir)
+        if selected_images is None:
+            print("输入无效，请输入正确序号/文件名，或使用逗号多选（例如 1,2,3）。")
+            continue
+
+        should_exit, icon_sizes = _prompt_icon_sizes(default_sizes=default_icon_sizes)
+        if should_exit:
+            return True
+        if icon_sizes is None:
+            continue
+
+        print(
+            f"\n开始图标转换，共 {len(selected_images)} 张..."
+            f" (sizes={','.join(str(size) for size in icon_sizes)})"
+        )
+        for idx, image in enumerate(selected_images, start=1):
+            output_path = next_icon_output_path(image, output_root=DEFAULT_OUTPUT_DIR)
+            try:
+                result = convert_image_to_icon(
+                    input_path=str(image),
+                    output_path=str(output_path),
+                    icon_sizes=icon_sizes,
+                )
+            except Exception as exc:
+                print(f"[{idx}/{len(selected_images)}] {image.name} 转换失败: {exc}")
+                continue
+
+            print(f"[{idx}/{len(selected_images)}] {image.name}")
+            _print_icon_result_line(result)
         return False
 
 
@@ -543,6 +647,17 @@ def interactive_menu() -> int:
                 return 0
             continue
 
+        if cmd == "icon":
+            should_exit = _interactive_icon(
+                base_dir=base_dir,
+                recursive=recursive,
+                default_icon_sizes=DEFAULT_ICON_SIZES,
+            )
+            if should_exit:
+                print("已退出。")
+                return 0
+            continue
+
         if cmd == "style":
             should_exit = _interactive_style(
                 base_dir=base_dir,
@@ -557,7 +672,7 @@ def interactive_menu() -> int:
                 return 0
             continue
 
-        print("未知命令，请输入 0/1/2/3/4/6/7 或 run/scan/help/target/style/dir/exit")
+        print("未知命令，请输入 0/1/2/3/4/5/6/7 或 run/scan/help/target/icon/style/dir/exit")
         input("按回车返回主菜单...")
 
 
@@ -586,6 +701,7 @@ def _run_drag_drop_mode(paths: Sequence[str], target_kb: int = DEFAULT_TARGET_KB
     print("\n拖拽模式：请选择处理方式")
     print("  1. compress  压缩到目标体积")
     print("  2. perler    转换为拼豆风格")
+    print("  3. icon      转换为 ICO 图标")
     selected_mode = "compress"
     perler_colors = DEFAULT_PERLER_COLORS
     perler_grid = DEFAULT_PERLER_GRID
@@ -594,9 +710,10 @@ def _run_drag_drop_mode(paths: Sequence[str], target_kb: int = DEFAULT_TARGET_KB
     perler_blueprint = DEFAULT_PERLER_BLUEPRINT
     perler_show_cell_codes = DEFAULT_PERLER_SHOW_CELL_CODES
     perler_legend = DEFAULT_PERLER_LEGEND
+    icon_sizes = DEFAULT_ICON_SIZES
 
     while True:
-        raw = input("mode(1/2，默认1，exit退出)> ").strip().lower()
+        raw = input("mode(1/2/3，默认1，exit退出)> ").strip().lower()
         if raw in EXIT_COMMANDS:
             print("已退出。")
             return 0
@@ -637,26 +754,46 @@ def _run_drag_drop_mode(paths: Sequence[str], target_kb: int = DEFAULT_TARGET_KB
                 return 0
             perler_legend = maybe_legend
             break
-        print("输入无效，请输入 1 或 2。")
+        if raw in {"3", "icon", "ico", "i"}:
+            selected_mode = "icon"
+            should_exit, maybe_sizes = _prompt_icon_sizes(
+                default_sizes=DEFAULT_ICON_SIZES,
+                allow_back=True,
+            )
+            if should_exit:
+                print("已退出。")
+                return 0
+            if maybe_sizes is None:
+                continue
+            icon_sizes = maybe_sizes
+            break
+        print("输入无效，请输入 1、2 或 3。")
 
     if selected_mode == "compress":
         print(
             f"拖拽模式：开始压缩，共 {len(images)} 张，输出目录: {output_dir}，目标大小: {_format_size_bytes(target_kb * 1024)}"
         )
-    else:
+    elif selected_mode == "perler":
         print(
             f"拖拽模式：开始拼豆风格转换，共 {len(images)} 张，输出目录: {output_dir}，"
             f"colors={perler_colors}, sat={perler_saturation:.2f}, "
             f"grid={perler_grid}, bead={perler_bead_size}px, blueprint={int(perler_blueprint)}, "
             f"codes={int(perler_show_cell_codes)}, legend={int(perler_legend)}"
         )
+    else:
+        print(
+            f"拖拽模式：开始图标转换，共 {len(images)} 张，输出目录: {output_dir}，"
+            f"sizes={','.join(str(size) for size in icon_sizes)}"
+        )
 
     failed = 0
     for idx, image in enumerate(images, start=1):
         if selected_mode == "compress":
             default_output = output_dir / f"{image.stem}-compre-{target_kb}kb.jpg"
-        else:
+        elif selected_mode == "perler":
             default_output = output_dir / f"{image.stem}-perler.png"
+        else:
+            default_output = output_dir / f"{image.stem}-icon.ico"
         output_file = _next_available_path(default_output)
 
         if selected_mode == "compress":
@@ -677,17 +814,35 @@ def _run_drag_drop_mode(paths: Sequence[str], target_kb: int = DEFAULT_TARGET_KB
                 failed += 1
             continue
 
+        if selected_mode == "perler":
+            try:
+                perler_result = style_image_to_perler(
+                    input_path=str(image),
+                    output_path=str(output_file),
+                    perler_colors=perler_colors,
+                    perler_grid=perler_grid,
+                    perler_bead_size=perler_bead_size,
+                    perler_saturation=perler_saturation,
+                    perler_blueprint=perler_blueprint,
+                    perler_show_cell_codes=perler_show_cell_codes,
+                    perler_legend=perler_legend,
+                )
+            except Exception as exc:
+                failed += 1
+                print(f"[{idx}/{len(images)}] {image} 转换失败: {exc}")
+                continue
+
+            print(f"[{idx}/{len(images)}] {image}")
+            _print_perler_result_line(perler_result)
+            if not perler_result.success:
+                failed += 1
+            continue
+
         try:
-            perler_result = style_image_to_perler(
+            icon_result = convert_image_to_icon(
                 input_path=str(image),
                 output_path=str(output_file),
-                perler_colors=perler_colors,
-                perler_grid=perler_grid,
-                perler_bead_size=perler_bead_size,
-                perler_saturation=perler_saturation,
-                perler_blueprint=perler_blueprint,
-                perler_show_cell_codes=perler_show_cell_codes,
-                perler_legend=perler_legend,
+                icon_sizes=icon_sizes,
             )
         except Exception as exc:
             failed += 1
@@ -695,8 +850,8 @@ def _run_drag_drop_mode(paths: Sequence[str], target_kb: int = DEFAULT_TARGET_KB
             continue
 
         print(f"[{idx}/{len(images)}] {image}")
-        _print_perler_result_line(perler_result)
-        if not perler_result.success:
+        _print_icon_result_line(icon_result)
+        if not icon_result.success:
             failed += 1
 
     return 0 if failed == 0 else 1

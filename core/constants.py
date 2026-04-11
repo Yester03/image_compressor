@@ -20,11 +20,13 @@ DEFAULT_PERLER_SHOW_CELL_CODES = False
 
 DEFAULT_PERLER_LEGEND = True
 
+DEFAULT_ICON_SIZES = (16, 32, 48, 64, 128, 256)
+
 APP_NAME = "Image Compressor CLI"
 
 APP_VERSION = "1.0.0"
 
-APP_VERSION_LABEL = "压缩+像素风格化"
+APP_VERSION_LABEL = "压缩+像素风格化+图标转换"
 
 EXIT_COMMANDS = {"exit", "quit", "q"}
 

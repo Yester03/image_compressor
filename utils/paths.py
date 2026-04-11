@@ -33,6 +33,15 @@ def _default_perler_output_path(
     return root / f"{input_file.stem}-perler.png"
 
 
+def _default_icon_output_path(
+    input_file: Path,
+    output_root: Optional[Path] = None,
+) -> Path:
+    root = output_root or DEFAULT_OUTPUT_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{input_file.stem}-icon.ico"
+
+
 def _next_available_path(base_path: Path) -> Path:
     if not base_path.exists():
         return base_path
@@ -58,6 +67,13 @@ def next_perler_output_path(
     output_root: Optional[Path] = None,
 ) -> Path:
     return _next_available_path(_default_perler_output_path(input_file, output_root))
+
+
+def next_icon_output_path(
+    input_file: Path,
+    output_root: Optional[Path] = None,
+) -> Path:
+    return _next_available_path(_default_icon_output_path(input_file, output_root))
 
 
 def list_images(recursive: bool, base_dir: Optional[Path] = None) -> list[Path]:

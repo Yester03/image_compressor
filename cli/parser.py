@@ -6,6 +6,7 @@ from core.constants import (
     APP_NAME,
     APP_VERSION,
     APP_VERSION_LABEL,
+    DEFAULT_ICON_SIZES,
     DEFAULT_PERLER_BEAD_SIZE,
     DEFAULT_PERLER_BLUEPRINT,
     DEFAULT_PERLER_COLORS,
@@ -15,7 +16,9 @@ from core.constants import (
     DEFAULT_PERLER_SHOW_CELL_CODES,
 )
 
+
 def build_parser() -> argparse.ArgumentParser:
+    default_icon_sizes_text = ",".join(str(size) for size in DEFAULT_ICON_SIZES)
     examples = (
         "示例:\n"
         "  python main.py img/input/in.png -k 200\n"
@@ -24,9 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
         "  python main.py img/input/in.png --mode perler\n"
         "  python main.py img/input/in.png --mode perler --perler-blueprint --perler-legend\n"
         "  python main.py img/input --mode perler --recursive\n"
+        "  python main.py img/input/in.png --mode icon\n"
+        f"  python main.py img/input/in.png --mode icon --icon-sizes {default_icon_sizes_text}\n"
+        "  python main.py img/input --mode icon --recursive\n"
     )
     parser = argparse.ArgumentParser(
-        description="图片工具：支持 JPEG 压缩与拼豆风格转换。",
+        description="图片工具：支持 JPEG 压缩、拼豆风格转换与 ICO 图标转换。",
         epilog=examples,
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -38,15 +44,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("input", help="输入路径：可以是图片文件或目录")
     parser.add_argument(
         "--mode",
-        choices=("compress", "perler"),
+        choices=("compress", "perler", "icon"),
         default="compress",
-        help="处理模式：compress=压缩到目标体积，perler=拼豆风格转换",
+        help="处理模式：compress=压缩到目标体积，perler=拼豆风格转换，icon=转换为 .ico 图标",
     )
     parser.add_argument(
         "-k",
         "--target-kb",
         type=int,
         help="目标大小（KB），例如 200（仅 compress 模式使用）",
+    )
+    parser.add_argument(
+        "--icon-sizes",
+        default=default_icon_sizes_text,
+        help=f"图标尺寸列表（逗号分隔，默认 {default_icon_sizes_text}，范围 16~256）",
     )
     parser.add_argument(
         "-o", "--output", help="输出路径（单图时为文件；目录模式下为输出目录）"
@@ -125,4 +136,3 @@ def build_parser() -> argparse.ArgumentParser:
         help="关闭底部物料清单",
     )
     return parser
-

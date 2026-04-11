@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 from cli.parser import build_parser
 from core.compress import compress_image_to_target_kb
 from core.constants import DEFAULT_TARGET_KB
+from core.icon import convert_image_to_icon, normalize_icon_sizes
 from core.perler import style_image_to_perler
-from ui.console import _format_size_bytes, _print_perler_result_line, _print_result_line
+from ui.console import (
+    _format_size_bytes,
+    _print_icon_result_line,
+    _print_perler_result_line,
+    _print_result_line,
+)
 from ui.interactive import (
     _run_drag_drop_mode,
     _should_use_drag_drop_mode,
@@ -16,12 +22,30 @@ from ui.interactive import (
 )
 from utils.paths import (
     DEFAULT_OUTPUT_DIR,
+    _default_icon_output_path,
     _default_output_path,
     _default_perler_output_path,
     _next_available_path,
     ensure_image_dirs,
     list_images,
 )
+
+
+def _parse_icon_sizes_arg(text: str) -> Tuple[int, ...]:
+    chunks = [chunk.strip() for chunk in text.split(",")]
+    values: list[int] = []
+    for chunk in chunks:
+        if not chunk:
+            continue
+        try:
+            values.append(int(chunk))
+        except ValueError as exc:
+            raise ValueError(f"icon-sizes 存在非整数值: {chunk}") from exc
+
+    if not values:
+        raise ValueError("icon-sizes 不能为空，请传入逗号分隔的尺寸列表，例如 16,32,48,64,128,256")
+
+    return normalize_icon_sizes(values)
 
 
 def _run_cli(argv: Sequence[str]) -> int:
@@ -38,8 +62,17 @@ def _run_cli(argv: Sequence[str]) -> int:
     if mode == "compress" and args.target_kb is None:
         print("错误: compress 模式必须指定 -k/--target-kb。", file=sys.stderr)
         return 2
-    if mode == "perler" and args.target_kb is not None:
-        print("提示: perler 模式下 --target-kb 会被忽略。", file=sys.stderr)
+
+    if mode != "compress" and args.target_kb is not None:
+        print(f"提示: {mode} 模式下 --target-kb 会被忽略。", file=sys.stderr)
+
+    icon_sizes: Optional[Tuple[int, ...]] = None
+    if mode == "icon":
+        try:
+            icon_sizes = _parse_icon_sizes_arg(args.icon_sizes)
+        except ValueError as exc:
+            print(f"错误: {exc}", file=sys.stderr)
+            return 2
 
     if input_path.is_file():
         if mode == "compress":
@@ -49,11 +82,17 @@ def _run_cli(argv: Sequence[str]) -> int:
                 if args.output
                 else _default_output_path(input_path, args.target_kb, output_root=DEFAULT_OUTPUT_DIR)
             )
-        else:
+        elif mode == "perler":
             output_file = (
                 Path(args.output)
                 if args.output
                 else _default_perler_output_path(input_path, output_root=DEFAULT_OUTPUT_DIR)
+            )
+        else:
+            output_file = (
+                Path(args.output)
+                if args.output
+                else _default_icon_output_path(input_path, output_root=DEFAULT_OUTPUT_DIR)
             )
 
         if output_file.exists() and not args.overwrite:
@@ -91,24 +130,39 @@ def _run_cli(argv: Sequence[str]) -> int:
                     )
             return 0 if result.success else 1
 
+        if mode == "perler":
+            try:
+                result = style_image_to_perler(
+                    input_path=str(input_path),
+                    output_path=str(output_file),
+                    perler_colors=args.perler_colors,
+                    perler_grid=args.perler_grid,
+                    perler_bead_size=args.perler_bead_size,
+                    perler_saturation=args.perler_saturation,
+                    perler_blueprint=args.perler_blueprint,
+                    perler_show_cell_codes=args.perler_show_cell_codes,
+                    perler_legend=args.perler_legend,
+                )
+            except Exception as exc:
+                print(f"错误: {exc}", file=sys.stderr)
+                return 2
+
+            _print_perler_result_line(result)
+            return 0 if result.success else 1
+
+        assert icon_sizes is not None
         try:
-            result = style_image_to_perler(
+            icon_result = convert_image_to_icon(
                 input_path=str(input_path),
                 output_path=str(output_file),
-                perler_colors=args.perler_colors,
-                perler_grid=args.perler_grid,
-                perler_bead_size=args.perler_bead_size,
-                perler_saturation=args.perler_saturation,
-                perler_blueprint=args.perler_blueprint,
-                perler_show_cell_codes=args.perler_show_cell_codes,
-                perler_legend=args.perler_legend,
+                icon_sizes=icon_sizes,
             )
         except Exception as exc:
             print(f"错误: {exc}", file=sys.stderr)
             return 2
 
-        _print_perler_result_line(result)
-        return 0 if result.success else 1
+        _print_icon_result_line(icon_result)
+        return 0 if icon_result.success else 1
 
     if not input_path.is_dir():
         print(f"错误: 输入路径不是有效文件或目录: {input_path}", file=sys.stderr)
@@ -129,13 +183,19 @@ def _run_cli(argv: Sequence[str]) -> int:
 
     if mode == "compress":
         print(f"开始批量压缩，共 {len(images)} 张...")
-    else:
+    elif mode == "perler":
         print(
             f"开始批量拼豆风格转换，共 {len(images)} 张..."
             f" (colors={args.perler_colors}, sat={args.perler_saturation:.2f}, "
             f"grid={args.perler_grid}, bead={args.perler_bead_size}px, "
             f"blueprint={int(args.perler_blueprint)}, codes={int(args.perler_show_cell_codes)}, "
             f"legend={int(args.perler_legend)})"
+        )
+    else:
+        assert icon_sizes is not None
+        print(
+            f"开始批量图标转换，共 {len(images)} 张..."
+            f" (sizes={','.join(str(size) for size in icon_sizes)})"
         )
 
     failed = 0
@@ -146,8 +206,10 @@ def _run_cli(argv: Sequence[str]) -> int:
         if mode == "compress":
             assert args.target_kb is not None
             default_output = target_dir / f"{image.stem}-compre-{args.target_kb}kb.jpg"
-        else:
+        elif mode == "perler":
             default_output = target_dir / f"{image.stem}-perler.png"
+        else:
+            default_output = target_dir / f"{image.stem}-icon.ico"
 
         output_file = (
             default_output if args.overwrite else _next_available_path(default_output)
@@ -185,26 +247,45 @@ def _run_cli(argv: Sequence[str]) -> int:
                     )
             continue
 
+        if mode == "perler":
+            try:
+                perler_result = style_image_to_perler(
+                    input_path=str(image),
+                    output_path=str(output_file),
+                    perler_colors=args.perler_colors,
+                    perler_grid=args.perler_grid,
+                    perler_bead_size=args.perler_bead_size,
+                    perler_saturation=args.perler_saturation,
+                    perler_blueprint=args.perler_blueprint,
+                    perler_show_cell_codes=args.perler_show_cell_codes,
+                    perler_legend=args.perler_legend,
+                )
+            except Exception as exc:
+                failed += 1
+                print(f"[{idx}/{len(images)}] {image} 转换失败: {exc}")
+                continue
+
+            print(f"[{idx}/{len(images)}] {image}")
+            _print_perler_result_line(perler_result)
+            if not perler_result.success:
+                failed += 1
+            continue
+
+        assert icon_sizes is not None
         try:
-            perler_result = style_image_to_perler(
+            icon_result = convert_image_to_icon(
                 input_path=str(image),
                 output_path=str(output_file),
-                perler_colors=args.perler_colors,
-                perler_grid=args.perler_grid,
-                perler_bead_size=args.perler_bead_size,
-                perler_saturation=args.perler_saturation,
-                perler_blueprint=args.perler_blueprint,
-                perler_show_cell_codes=args.perler_show_cell_codes,
-                perler_legend=args.perler_legend,
+                icon_sizes=icon_sizes,
             )
         except Exception as exc:
             failed += 1
-            print(f"[{idx}/{len(images)}] {image} 转换失败: {exc}")
+            print(f"[{idx}/{len(images)}] {image} 图标转换失败: {exc}")
             continue
 
         print(f"[{idx}/{len(images)}] {image}")
-        _print_perler_result_line(perler_result)
-        if not perler_result.success:
+        _print_icon_result_line(icon_result)
+        if not icon_result.success:
             failed += 1
 
     return 0 if failed == 0 else 1
